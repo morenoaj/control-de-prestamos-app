@@ -14,6 +14,8 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+// 🚀 Se eliminaron las importaciones de recharts que estaban generando errores
+
 interface Cliente {
   id: string;
   nombre: string;
@@ -33,7 +35,7 @@ export default function ReportesPage() {
   const [prestamos, setPrestamos] = useState<Prestamo[]>([]);
   const [busquedaCliente, setBusquedaCliente] = useState("");
   const [loading, setLoading] = useState(true);
-  const [pagina, setPagina] = useState(1); // Restaurado para evitar errores en paginación
+  const [pagina, setPagina] = useState(1); // 🔥 Se mantiene porque se usa en la paginación
   const prestamosPorPagina = 10;
 
   const obtenerDatos = useCallback(async () => {
