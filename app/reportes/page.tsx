@@ -10,7 +10,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import Menu from "@/components/menu";
 import { toast } from "react-hot-toast";
-//import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -29,36 +28,24 @@ interface Prestamo {
   clienteId: string;
 }
 
-interface Pago {
-  id: string;
-  prestamoId: string;
-  fechaPago: string;
-  montoCapital: number;
-  montoIntereses: number;
-  montoPagado: number;
-}
-
 export default function ReportesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [prestamos, setPrestamos] = useState<Prestamo[]>([]);
-  //const [pagos, setPagos] = useState<Pago[]>([]);
   const [busquedaCliente, setBusquedaCliente] = useState("");
   const [loading, setLoading] = useState(true);
-  //const [pagina, setPagina] = useState(1);
+  const [pagina, setPagina] = useState(1); // Restaurado para evitar errores en paginación
   const prestamosPorPagina = 10;
 
   const obtenerDatos = useCallback(async () => {
     try {
-      const [clientesSnapshot, prestamosSnapshot, pagosSnapshot] = await Promise.all([
+      const [clientesSnapshot, prestamosSnapshot] = await Promise.all([
         getDocs(collection(db, "clientes")),
-        getDocs(collection(db, "prestamos")),
-        getDocs(collection(db, "pagos"))
+        getDocs(collection(db, "prestamos"))
       ]);
 
       const clientesData = clientesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente));
       setClientes(clientesData);
       setPrestamos(prestamosSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Prestamo)));
-      setPagos(pagosSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Pago)));
 
       setLoading(false);
     } catch (error) {
@@ -129,24 +116,23 @@ export default function ReportesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-  {prestamosPaginados.map((prestamo) => {
-    const cliente = clientes.find((c) => c.id === prestamo.clienteId);
+                {prestamosPaginados.map((prestamo) => {
+                  const cliente = clientes.find((c) => c.id === prestamo.clienteId);
 
-    // Asegurar valores numéricos antes de llamar a .toFixed(2)
-    const saldoCapital = typeof prestamo.saldoCapital === "number" ? prestamo.saldoCapital.toFixed(2) : "0.00";
-    const interesesAcumulados = typeof prestamo.interesesAcumulados === "number" ? prestamo.interesesAcumulados.toFixed(2) : "0.00";
+                  // Asegurar valores numéricos antes de llamar a .toFixed(2)
+                  const saldoCapital = typeof prestamo.saldoCapital === "number" ? prestamo.saldoCapital.toFixed(2) : "0.00";
+                  const interesesAcumulados = typeof prestamo.interesesAcumulados === "number" ? prestamo.interesesAcumulados.toFixed(2) : "0.00";
 
-    return (
-      <TableRow key={prestamo.id}>
-        <TableCell>{cliente ? cliente.nombre : "Desconocido"}</TableCell>
-        <TableCell>${saldoCapital}</TableCell>
-        <TableCell>${interesesAcumulados}</TableCell>
-        <TableCell>{prestamo.fechaInicio}</TableCell>
-      </TableRow>
-    );
-  })}
-</TableBody>
-
+                  return (
+                    <TableRow key={prestamo.id}>
+                      <TableCell>{cliente ? cliente.nombre : "Desconocido"}</TableCell>
+                      <TableCell>${saldoCapital}</TableCell>
+                      <TableCell>${interesesAcumulados}</TableCell>
+                      <TableCell>{prestamo.fechaInicio}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
             </Table>
           )}
         </CardContent>
