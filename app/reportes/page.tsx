@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -39,10 +41,10 @@ interface Pago {
 export default function ReportesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [prestamos, setPrestamos] = useState<Prestamo[]>([]);
-  const [pagos, setPagos] = useState<Pago[]>([]);
+  //const [pagos, setPagos] = useState<Pago[]>([]);
   const [busquedaCliente, setBusquedaCliente] = useState("");
   const [loading, setLoading] = useState(true);
-  const [pagina, setPagina] = useState(1);
+  //const [pagina, setPagina] = useState(1);
   const prestamosPorPagina = 10;
 
   const obtenerDatos = useCallback(async () => {
