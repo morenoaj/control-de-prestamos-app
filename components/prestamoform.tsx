@@ -12,10 +12,10 @@ interface Cliente {
 
 interface PrestamoFormProps {
   clientes: Cliente[];
-  actualizarPrestamos?: () => void; // Se marca como opcional para evitar errores si no se pasa
+  actualizarClientes: () => Promise<void>; // 🔥 Agrega esta línea
 }
 
-export default function PrestamoForm({ clientes, actualizarPrestamos }: PrestamoFormProps) {
+export default function PrestamoForm({ clientes, actualizarClientes }: PrestamoFormProps) {
   const [clienteId, setClienteId] = useState("");
   const [fechaInicio, setFechaInicio] = useState("");
   const [monto, setMonto] = useState("");
@@ -46,8 +46,8 @@ export default function PrestamoForm({ clientes, actualizarPrestamos }: Prestamo
       setMetodoPago("");
 
       // Verificar si actualizarPrestamos es una función antes de llamarla
-      if (typeof actualizarPrestamos === "function") {
-        actualizarPrestamos();
+      if (typeof actualizarClientes === "function") {
+        actualizarClientes();
       } else {
         console.warn("actualizarPrestamos no fue pasado como función al componente");
       }
