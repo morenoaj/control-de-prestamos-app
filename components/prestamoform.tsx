@@ -12,7 +12,7 @@ interface Cliente {
 
 interface PrestamoFormProps {
   clientes: Cliente[];
-  actualizarClientes: () => Promise<void>; // 🔥 Agrega esta línea
+  actualizarClientes?: () => Promise<void>; // 🔥 Se vuelve opcional para evitar errores
 }
 
 export default function PrestamoForm({ clientes, actualizarClientes }: PrestamoFormProps) {
@@ -45,11 +45,11 @@ export default function PrestamoForm({ clientes, actualizarClientes }: PrestamoF
       setMonto("");
       setMetodoPago("");
 
-      // Verificar si actualizarPrestamos es una función antes de llamarla
-      if (typeof actualizarClientes === "function") {
-        actualizarClientes();
-      } else {
-        console.warn("actualizarPrestamos no fue pasado como función al componente");
+      // Verificar si actualizarClientes es una función antes de llamarla
+      if (actualizarClientes) {
+        actualizarClientes().catch((error) =>
+          console.error("Error al actualizar clientes:", error)
+        );
       }
     } catch (error) {
       toast.error("Error al registrar el préstamo");
