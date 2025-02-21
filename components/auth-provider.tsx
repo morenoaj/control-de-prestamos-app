@@ -1,36 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebaseConfig";
+import { onAuthStateChanged } from "firebase/auth";
+import { sincronizarUsuarioEnFirestore } from "@/lib/auth";
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
   const router = useRouter();
-  const pathname = usePathname(); // Detecta la ruta actual
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (authUser) => {
-      console.log("Estado de autenticación:", authUser);
-      setUser(authUser);
-      setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        console.log("⚠️ No hay usuario autenticado, redirigiendo a login...");
+        router.replace("/login");
+      } else {
+        await sincronizarUsuarioEnFirestore(); // 🔹 Ahora se asegura de registrar al usuario en Firestore
+      }
+      setAuthChecked(true);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
-  // 🔥 Solución para evitar loops: Solo redirigir si el usuario no está autenticado y no está en /login
-  useEffect(() => {
-    if (!loading && !user && pathname !== "/login") {
-      router.replace("/login");
-    }
-  }, [user, loading, pathname, router]);
-
-  if (loading) {
-    return <p className="flex justify-center items-center h-screen">Cargando...</p>;
-  }
+  // 🔥 Bloquea la renderización hasta que se verifique la autenticación
+  if (!authChecked) return null;
 
   return <>{children}</>;
 }

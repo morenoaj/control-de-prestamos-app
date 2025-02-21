@@ -1,5 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebaseConfig";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,19 +15,18 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signInWithGoogle } from "@/lib/firebaseConfig"; // Importa la función de Firebase
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { auth } from "@/lib/firebaseConfig";
-import { onAuthStateChanged } from "firebase/auth";
+import { signInWithGoogle } from "@/lib/firebaseConfig";
 
 export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRef<"div">) {
   const router = useRouter();
+  const [loading, setLoading] = useState(true); // Estado de carga
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        router.replace("/dashboard");
+        router.replace("/dashboard"); // Redirección sin parpadeo
+      } else {
+        setLoading(false); // Solo mostramos el formulario cuando la validación termina
       }
     });
 
@@ -39,6 +42,11 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
     }
   };
 
+  // Muestra un mensaje de carga en lugar del formulario si la validación aún no ha terminado
+  if (loading) {
+    return <p className="text-center text-lg">Cargando...</p>;
+  }
+
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
@@ -47,7 +55,6 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
           <CardDescription>Inicia sesión con tu cuenta Google</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* 🔹 Mueve el botón de Google fuera del <form> */}
           <div className="flex flex-col gap-4">
             <Button variant="outline" className="w-full" onClick={handleGoogleLogin} type="button">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -59,11 +66,10 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
               Iniciar sesión con Google
             </Button>
           </div>
-          {/* 🔹 El formulario solo contiene email y password */}
           <form>
             <div className="grid gap-6">
               <div className="relative text-center text-sm mt-4 after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
-              <span className="relative z-10 bg-background px-2 text-muted-foreground">
+                <span className="relative z-10 bg-background px-2 text-muted-foreground">
                   O continúa con
                 </span>
               </div>
