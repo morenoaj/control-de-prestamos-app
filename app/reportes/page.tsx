@@ -1,328 +1,417 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { db } from "@/lib/firebaseConfig";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
-import { obtenerRolDeUsuario } from "@/lib/auth";
-import { auth } from "@/lib/firebaseConfig";
-import { onAuthStateChanged } from "firebase/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
-import { Menu, X } from "lucide-react";
-import Link from "next/link";
-import { toast } from "react-hot-toast";
-import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
+import { Menu as MenuIcon, X, Home, Users, DollarSign, BarChart2, Settings } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { toast } from 'react-hot-toast';
+import { db } from '@/lib/firebaseConfig';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '@/lib/firebaseConfig';
+import { obtenerRolDeUsuario } from '@/lib/auth';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
-// Interfaces
-interface Cliente {
-  id: string;
-  nombre: string;
-}
 
+// ---- NAV ITEMS ----
+const NAV_ITEMS = [
+  { href: '/',         icon: Home,       label: 'Inicio'    },
+  { href: '/clientes', icon: Users,      label: 'Clientes'  },
+  { href: '/pagos',    icon: DollarSign, label: 'Pagos'     },
+  { href: '/reportes', icon: BarChart2,  label: 'Reportes'  },
+];
+const ADMIN_ITEMS = [
+  { href: '/admin/cartera',  icon: Settings, label: 'Cartera'      },
+  { href: '/admin/usuarios', icon: Users,    label: 'Usuarios'     },
+  { href: '/devoluciones',   icon: DollarSign,label: 'Devoluciones'},
+];
+
+// ---- TYPES & HELPERS ----
+interface Cliente { id: string; nombre: string; }
 interface Prestamo {
   id: string;
   monto: number;
+  fechaInicio: string;
+  clienteId: string;
   saldoCapital?: number;
   interesesAcumulados?: number;
-  fechaInicio?: string;
-  metodoPago?: string;
-  clienteId: string;
 }
+type PagoResumen = Record<string,{ capital:number; interes:number }>;
 
-interface Pago {
-  id: string;
-  prestamoId: string;
-  montoCapital: number;
-  montoInteres: number;
-  fechaPago: string;
-  createdAt: any;
-}
-
-// Función para parsear una fecha en formato "YYYY-MM-DD" a Date en horario local
-const parseDate = (dateString: string): Date => {
-  const [year, month, day] = dateString.split("-");
-  return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+const parseDate = (s: string) => {
+  const [year, month, day] = s.split('-').map(Number);
+  return new Date(year, month - 1, day);
 };
-
-// Función para contar quincenas (días 15 y 30, o el último día en febrero)
-// entre startDate (exclusivo) y endDate (inclusivo)
-const countQuincenasDesde = (startDate: Date, endDate: Date): number => {
-  let count = 0;
-  let d = new Date(startDate.getTime());
-  d.setDate(d.getDate() + 1);
-  while (d <= endDate) {
-    const day = d.getDate();
-    const month = d.getMonth();
-    const year = d.getFullYear();
-    const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-    if (day === 15 || day === (month === 1 ? lastDayOfMonth : 30)) {
-      count++;
-    }
-    d.setDate(d.getDate() + 1);
+const countQuincenasDesde = (start: Date, end: Date) => {
+  let c = 0, d = new Date(start);
+  d.setDate(d.getDate()+1);
+  while(d<=end){
+    const day=d.getDate(),m=d.getMonth(),y=d.getFullYear(),
+          ld=new Date(y,m+1,0).getDate();
+    if(day===15 || day===(m===1?ld:30)) c++;
+    d.setDate(d.getDate()+1);
   }
-  return count;
+  return c;
+};
+const formatDateDisplay = (s: string) => {
+  const dt = parseDate(s);
+  return new Intl.DateTimeFormat('es-PA',{
+    day:'numeric',month:'long',year:'numeric'
+  }).format(dt);
 };
 
-// Función que, dado un préstamo, consulta sus pagos y recalcula el saldo y los intereses.
-const calcularValoresPrestamo = async (prestamo: Prestamo): Promise<Prestamo> => {
-  if (!prestamo.fechaInicio) return prestamo;
-  // Consultar pagos del préstamo
-  const pagosQuery = query(
-    collection(db, "pagos"),
-    where("prestamoId", "==", prestamo.id),
-    orderBy("fechaPago", "desc")
+const calcularValoresPrestamo = async (p: Prestamo): Promise<Prestamo> => {
+  const pagosSnap = await getDocs(
+    query(
+      collection(db,'pagos'),
+      where('prestamoId','==',p.id),
+      orderBy('fechaPago','desc')
+    )
   );
-  const pagosSnapshot = await getDocs(pagosQuery);
-  let totalCapitalPagado = 0;
-  // Se usa la fecha de inicio del préstamo (parseada) como punto de partida
-  let lastInterestPaymentDate = parseDate(prestamo.fechaInicio);
-  pagosSnapshot.docs.forEach((doc) => {
-    const pagoData = doc.data();
-    totalCapitalPagado += pagoData.montoCapital || 0;
-    if (pagoData.montoInteres > 0 && parseDate(pagoData.fechaPago) > lastInterestPaymentDate) {
-      lastInterestPaymentDate = parseDate(pagoData.fechaPago);
-    }
+  let totalCap = 0;
+  let lastDate = parseDate(p.fechaInicio);
+  pagosSnap.docs.forEach(d=>{
+    const pd = d.data() as any;
+    totalCap += pd.montoCapital||0;
+    if(pd.montoInteres>0 && parseDate(pd.fechaPago)>lastDate)
+      lastDate = parseDate(pd.fechaPago);
   });
-  const saldoCapital = prestamo.monto - totalCapitalPagado;
-  const quincenasPendientes = countQuincenasDesde(lastInterestPaymentDate, new Date());
-  const interesesAcumulados = quincenasPendientes * (saldoCapital * 0.15);
-  return { ...prestamo, saldoCapital, interesesAcumulados };
+  const saldo = p.monto - totalCap;
+  const quincenas = countQuincenasDesde(lastDate, new Date());
+  return {
+    ...p,
+    saldoCapital: saldo,
+    interesesAcumulados: +(quincenas * (saldo * 0.15)).toFixed(2)
+  };
 };
 
-export default function ReportesPage() {
+const obtenerPagosAgrupados = async (): Promise<PagoResumen> => {
+  const snap = await getDocs(collection(db,'pagos'));
+  const res: PagoResumen = {};
+  snap.docs.forEach(d=>{
+    const pd = d.data() as any;
+    res[pd.prestamoId] ??= { capital:0, interes:0 };
+    res[pd.prestamoId].capital += pd.montoCapital||0;
+    res[pd.prestamoId].interes  += pd.montoInteres||0;
+  });
+  return res;
+};
+
+
+// ---- COMPONENT ----
+export default function ReportesPage(){
   const router = useRouter();
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [prestamos, setPrestamos] = useState<Prestamo[]>([]);
-  const [busquedaCliente, setBusquedaCliente] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [rol, setRol] = useState<string | null>(null);
-  const [pagina, setPagina] = useState(1);
-  const prestamosPorPagina = 10;
+  const path   = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        console.log("⚠️ No hay usuario autenticado, redirigiendo a login...");
-        router.replace("/login");
-      } else {
-        console.log(`✅ Usuario autenticado: ${firebaseUser.uid}`);
-        const userRol = await obtenerRolDeUsuario();
-        if (userRol !== "Admin" && userRol !== "Gestor") {
-          console.log("🚫 Usuario no autorizado, redirigiendo a inicio...");
-          router.replace("/");
-        } else {
-          setRol(userRol);
-          cargarDatos();
-        }
-      }
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [prestamos, setPrestamos] = useState<Prestamo[]>([]);
+  const [resumenPagos, setResumenPagos] = useState<PagoResumen>({});
+  const [busquedaCliente, setBusquedaCliente] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [rol, setRol] = useState<string|null>(null);
+
+  // pagination
+  const [pagina, setPagina] = useState(1);
+  const porPagina = 10;
+  const prestamosFiltrados = prestamos.filter(p=>{
+    const cli = clientes.find(c=>c.id===p.clienteId);
+    return cli?.nombre.toLowerCase().includes(busquedaCliente.toLowerCase());
+  });
+  const totalPaginas = Math.ceil(prestamosFiltrados.length/porPagina);
+  const pagPrev = ()=> pagina>1 && setPagina(pagina-1);
+  const pagNext = ()=> pagina<totalPaginas && setPagina(pagina+1);
+
+  // auth + load
+  useEffect(()=>{
+    const unsub = onAuthStateChanged(auth, async user=>{
+      if(!user) return router.replace('/login');
+      const r = await obtenerRolDeUsuario();
+      if(r && !['Admin','Gestor'].includes(r)) return router.replace('/');
+      setRol(r);
+      cargarDatos();
       setAuthChecked(true);
     });
+    return ()=> unsub();
+  },[]);
 
-    return () => unsubscribe();
-  }, [router]);
-
-  const cargarDatos = useCallback(async () => {
-    try {
-      console.log("🔄 Cargando datos de reportes...");
-      const [clientesSnapshot, prestamosSnapshot] = await Promise.all([
-        getDocs(collection(db, "clientes")),
-        getDocs(collection(db, "prestamos")),
+  const cargarDatos = useCallback(async ()=>{
+    try{
+      const [cliSnap, preSnap, resu] = await Promise.all([
+        getDocs(collection(db,'clientes')),
+        getDocs(collection(db,'prestamos')),
+        obtenerPagosAgrupados()
       ]);
-      const clientesData = clientesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente));
-      setClientes(clientesData);
-      // Convertir y recalcular cada préstamo dinámicamente
-      const prestamosConValores = await Promise.all(
-        prestamosSnapshot.docs.map(async (doc) => {
-          const prestamo = { id: doc.id, ...doc.data() } as Prestamo;
-          return await calcularValoresPrestamo(prestamo);
-        })
+      setClientes(cliSnap.docs.map(d=>({ id:d.id, ...(d.data() as any) })));
+      const prs = await Promise.all(
+        preSnap.docs.map(d=>calcularValoresPrestamo({ id:d.id, ...(d.data() as any) }))
       );
-      setPrestamos(prestamosConValores);
+      setPrestamos(prs);
+      setResumenPagos(resu);
+    }catch(e){
+      console.error(e);
+      toast.error('Error al cargar datos');
+    }finally{
       setLoading(false);
-    } catch (error) {
-      toast.error("Error al obtener los datos.");
-      console.error(error);
     }
-  }, []);
+  },[]);
 
-  const exportarExcel = () => {
+  const exportarExcel = ()=>{
     const ws = XLSX.utils.json_to_sheet(prestamos);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Reportes");
-    XLSX.writeFile(wb, "reportes_prestamos.xlsx");
+    XLSX.utils.book_append_sheet(wb,ws,'Reportes');
+    XLSX.writeFile(wb,'reportes_prestamos.xlsx');
   };
 
-  const exportarPDF = () => {
+  const exportarPDF = ()=>{
     const doc = new jsPDF();
-    doc.text("Reporte de Préstamos", 20, 10);
-    autoTable(doc, { html: "#tablaReportes" });
-    doc.save("reportes_prestamos.pdf");
+    doc.text('Reporte de Préstamos',20,10);
+    autoTable(doc,{ html:'#tablaReportes' });
+    doc.save('reportes_prestamos.pdf');
   };
 
-  const prestamosFiltrados = prestamos.filter((p) => {
-    const cliente = clientes.find((c) => c.id === p.clienteId);
-    return cliente && cliente.nombre.toLowerCase().includes(busquedaCliente);
-  });
-
-  // Cálculos para el resumen
-  const totalPrestamos = prestamosFiltrados.length;
-  const totalSaldoCapital = prestamosFiltrados.reduce((sum, p) => sum + (p.saldoCapital || 0), 0);
-  const totalIntereses = prestamosFiltrados.reduce((sum, p) => sum + (p.interesesAcumulados || 0), 0);
-
-  const prestamosPaginados = prestamosFiltrados.slice((pagina - 1) * prestamosPorPagina, pagina * prestamosPorPagina);
-
-  // Funciones de paginación
-  const totalPaginas = Math.ceil(prestamosFiltrados.length / prestamosPorPagina);
-  const paginaAnterior = () => {
-    if (pagina > 1) setPagina(pagina - 1);
-  };
-  const paginaSiguiente = () => {
-    if (pagina < totalPaginas) setPagina(pagina + 1);
-  };
-
-  // Bloquear renderización hasta que se verifique la autenticación
-  if (!authChecked) return null;
-  if (!rol) return null;
+  if(!authChecked||!rol) return null;
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-6">
-      {/* Menú responsive */}
-      <div className="bg-gray-800 text-white p-4 flex justify-between items-center md:hidden">
-        <span className="text-lg font-semibold">Reportes</span>
-        <button onClick={() => setMenuOpen(!menuOpen)} className="focus:outline-none">
-          {menuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
-      </div>
-
-      {/* Menú hamburguesa en móviles */}
-      {menuOpen && (
-        <div className="bg-gray-800 text-white flex flex-col p-4 space-y-2 md:hidden">
-          <Link href="/" className="py-2 px-4 hover:bg-gray-700 rounded">Inicio</Link>
-          <Link href="/clientes" className="py-2 px-4 hover:bg-gray-700 rounded">Clientes</Link>
-          <Link href="/pagos" className="py-2 px-4 hover:bg-gray-700 rounded">Pagos</Link>
-          <Link href="/reportes" className="py-2 px-4 hover:bg-gray-700 rounded">Reportes</Link>
+    <div className="min-h-screen flex bg-gray-50">
+      {/* SIDEBAR desktop */}
+      <aside className="hidden md:flex md:flex-col w-64 bg-white border-r">
+        <div className="h-16 flex items-center justify-center font-bold border-b">
+          Reportes
         </div>
-      )}
-
-      {/* Menú en escritorio */}
-      <div className="hidden md:flex justify-between bg-gray-800 text-white p-4 rounded-lg">
-        <span className="text-lg font-semibold">Gestión de Reportes</span>
-        <div className="flex space-x-4">
-          <Link href="/" className="py-2 px-4 hover:bg-gray-700 rounded">Inicio</Link>
-          <Link href="/clientes" className="py-2 px-4 hover:bg-gray-700 rounded">Clientes</Link>
-          <Link href="/pagos" className="py-2 px-4 hover:bg-gray-700 rounded">Pagos</Link>
-          <Link href="/reportes" className="py-2 px-4 hover:bg-gray-700 rounded">Reportes</Link>
-        </div>
-      </div>
-
-      {/* Resumen de Reportes */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-green-100">
-          <CardContent className="text-center">
-            <h3 className="text-xl font-bold">{totalPrestamos}</h3>
-            <p className="text-gray-700">Préstamos Activos</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-blue-100">
-          <CardContent className="text-center">
-            <h3 className="text-xl font-bold">${totalSaldoCapital.toFixed(2)}</h3>
-            <p className="text-gray-700">Total Saldo Capital</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-yellow-100">
-          <CardContent className="text-center">
-            <h3 className="text-xl font-bold">${totalIntereses.toFixed(2)}</h3>
-            <p className="text-gray-700">Total Intereses</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filtros y Exportación */}
-      <Card>
-        <CardContent className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0">
-          <Input
-            placeholder="Buscar Cliente"
-            value={busquedaCliente}
-            onChange={(e) => setBusquedaCliente(e.target.value.toLowerCase())}
-            className="w-full md:w-1/3"
-          />
-          <div className="flex space-x-2">
-            <button onClick={exportarExcel} className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600">
-              Exportar a Excel
-            </button>
-            <button onClick={exportarPDF} className="bg-red-500 text-white py-2 px-4 rounded hover:bg-red-600">
-              Exportar a PDF
-            </button>
+        <nav className="p-4 flex-1 space-y-2 overflow-y-auto">
+          {NAV_ITEMS.map(it=>(
+            <Link
+              key={it.href}
+              href={it.href}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-md transition
+                ${path===it.href
+                  ? 'bg-gray-200 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <it.icon className="w-5 h-5"/>
+              <span>{it.label}</span>
+            </Link>
+          ))}
+          <div className="mt-6 border-t pt-4 border-gray-200">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">Administración</h3>
+            {ADMIN_ITEMS.map(it=>(
+              <Link
+                key={it.href}
+                href={it.href}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-md transition
+                  ${path===it.href
+                    ? 'bg-gray-200 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                <it.icon className="w-5 h-5"/>
+                <span>{it.label}</span>
+              </Link>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+        </nav>
+      </aside>
 
-      {/* Tabla de Préstamos */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Préstamos Activos</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <p className="text-center">Cargando datos...</p>
-          ) : (
-            <>
+      <div className="flex-1 flex flex-col">
+        {/* HEADER mobile */}
+        <header className="md:hidden flex items-center justify-between h-16 px-4 bg-white border-b">
+          <span className="font-bold">Reportes</span>
+          <Button variant="ghost" onClick={()=>setMenuOpen(v=>!v)}>
+            {menuOpen ? <X size={24}/> : <MenuIcon size={24}/>}
+          </Button>
+        </header>
+
+        {/* DRAWER mobile */}
+        {menuOpen && (
+          <div className="md:hidden fixed inset-0 z-40 bg-black/25">
+            <div className="fixed top-0 left-0 bottom-0 w-64 bg-white p-4">
+              <div className="flex justify-between items-center mb-6">
+                <span className="font-bold text-xl">Reportes</span>
+                <Button variant="ghost" onClick={()=>setMenuOpen(false)}>
+                  <X size={24}/>
+                </Button>
+              </div>
+              <nav className="space-y-2">
+                {NAV_ITEMS.map(it=>(
+                  <Link
+                    key={it.href}
+                    href={it.href}
+                    onClick={()=>setMenuOpen(false)}
+                    className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
+                  >
+                    <it.icon className="w-5 h-5"/>
+                    <span>{it.label}</span>
+                  </Link>
+                ))}
+                <div className="mt-6 border-t pt-4 border-gray-200">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">Administración</h3>
+                  {ADMIN_ITEMS.map(it=>(
+                    <Link
+                      key={it.href}
+                      href={it.href}
+                      onClick={()=>setMenuOpen(false)}
+                      className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
+                    >
+                      <it.icon className="w-5 h-5"/>
+                      <span>{it.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              </nav>
+            </div>
+          </div>
+        )}
+
+        {/* MAIN */}
+        <main className="flex-1 p-4 md:p-6 space-y-6">
+          {/* Resumen cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="bg-green-100 text-center">
+              <CardContent>
+                <h3 className="text-2xl font-bold">{prestamosFiltrados.length}</h3>
+                <p>Préstamos Activos</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-blue-100 text-center">
+              <CardContent>
+                <h3 className="text-2xl font-bold">
+                  $
+                  {prestamosFiltrados
+                    .reduce((acc,p)=>acc+(p.saldoCapital||0),0)
+                    .toFixed(2)}
+                </h3>
+                <p>Total Saldo Capital</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-yellow-100 text-center">
+              <CardContent>
+                <h3 className="text-2xl font-bold">
+                  $
+                  {prestamosFiltrados
+                    .reduce((acc,p)=>acc+(p.interesesAcumulados||0),0)
+                    .toFixed(2)}
+                </h3>
+                <p>Total Intereses</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Filtro + export */}
+          <Card>
+            <CardContent className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0">
+              <Input
+                placeholder="Buscar Cliente"
+                value={busquedaCliente}
+                onChange={e=>setBusquedaCliente(e.target.value)}
+                className="w-full md:w-1/3"
+              />
+              <div className="flex space-x-2">
+                <Button onClick={exportarExcel}>Excel</Button>
+                <Button onClick={exportarPDF}>PDF</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Tabla de préstamos */}
+          <Card>
+            <CardHeader><CardTitle>Préstamos Activos</CardTitle></CardHeader>
+            <CardContent>
+              {loading ? (
+                <p>Cargando datos…</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table id="tablaReportes">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Saldo Capital</TableHead>
+                        <TableHead>Intereses</TableHead>
+                        <TableHead>Inicio</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {prestamosFiltrados
+                        .slice((pagina-1)*porPagina, pagina*porPagina)
+                        .map(p=>{
+                          const cli = clientes.find(c=>c.id===p.clienteId);
+                          return (
+                            <TableRow key={p.id} className="hover:bg-gray-100">
+                              <TableCell>{cli?.nombre||'–'}</TableCell>
+                              <TableCell>${(p.saldoCapital||0).toFixed(2)}</TableCell>
+                              <TableCell>${(p.interesesAcumulados||0).toFixed(2)}</TableCell>
+                              <TableCell>{formatDateDisplay(p.fechaInicio)}</TableCell>
+                            </TableRow>
+                          );
+                        })
+                      }
+                    </TableBody>
+                  </Table>
+                  <div className="flex justify-center items-center space-x-4 mt-4">
+                    <Button onClick={pagPrev} disabled={pagina===1}>Anterior</Button>
+                    <span>Página {pagina} de {totalPaginas}</span>
+                    <Button onClick={pagNext} disabled={pagina===totalPaginas}>Siguiente</Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Resumen ganancias */}
+          <Card>
+            <CardHeader><CardTitle>Ganancias por Préstamo</CardTitle></CardHeader>
+            <CardContent>
               <div className="overflow-x-auto">
-                <Table id="tablaReportes">
+                <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Cliente</TableHead>
-                      <TableHead>Saldo Capital</TableHead>
-                      <TableHead>Intereses Acumulados</TableHead>
-                      <TableHead>Fecha de Inicio</TableHead>
+                      <TableHead>Monto</TableHead>
+                      <TableHead>Capital Pagado</TableHead>
+                      <TableHead>Interés Pagado</TableHead>
+                      <TableHead>Total Pagado</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {prestamosPaginados.map((prestamo) => {
-                      const cliente = clientes.find((c) => c.id === prestamo.clienteId);
+                    {prestamosFiltrados.map(p=>{
+                      const cli = clientes.find(c=>c.id===p.clienteId);
+                      const r = resumenPagos[p.id]||{ capital:0, interes:0 };
                       return (
-                        <TableRow key={prestamo.id} className="hover:bg-gray-100">
-                          <TableCell>{cliente ? cliente.nombre : "Desconocido"}</TableCell>
-                          <TableCell>${(prestamo.saldoCapital ?? 0).toFixed(2)}</TableCell>
-                          <TableCell>${(prestamo.interesesAcumulados ?? 0).toFixed(2)}</TableCell>
-                          <TableCell>{prestamo.fechaInicio || "Sin fecha"}</TableCell>
+                        <TableRow key={p.id} className="hover:bg-gray-100">
+                          <TableCell>{cli?.nombre||'–'}</TableCell>
+                          <TableCell>${p.monto.toFixed(2)}</TableCell>
+                          <TableCell>${r.capital.toFixed(2)}</TableCell>
+                          <TableCell>${r.interes.toFixed(2)}</TableCell>
+                          <TableCell>${(r.capital+r.interes).toFixed(2)}</TableCell>
                         </TableRow>
                       );
                     })}
                   </TableBody>
                 </Table>
               </div>
+            </CardContent>
+          </Card>
+        </main>
 
-              {/* Paginación */}
-              <div className="flex justify-center items-center mt-4 space-x-4">
-                <button
-                  onClick={paginaAnterior}
-                  disabled={pagina === 1}
-                  className="px-4 py-2 bg-gray-300 rounded disabled:opacity-50"
-                >
-                  Anterior
-                </button>
-                <span>
-                  Página {pagina} de {totalPaginas}
-                </span>
-                <button
-                  onClick={paginaSiguiente}
-                  disabled={pagina === totalPaginas}
-                  className="px-4 py-2 bg-gray-300 rounded disabled:opacity-50"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+        {/* bottom nav móvil */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t flex justify-around h-16">
+          {NAV_ITEMS.map(it=>{
+            const active = path===it.href;
+            return (
+              <Link key={it.href} href={it.href} className="flex flex-col items-center justify-center">
+                <it.icon size={20} className={active?'text-blue-500':'text-gray-400'}/>
+                <span className={`text-xs ${active?'text-blue-500':'text-gray-400'}`}>{it.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
     </div>
   );
 }
