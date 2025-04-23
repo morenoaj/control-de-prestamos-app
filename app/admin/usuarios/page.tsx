@@ -1,29 +1,66 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { db } from "@/lib/firebaseConfig";
-import { collection, getDocs, updateDoc, doc, deleteDoc } from "firebase/firestore";
-import { obtenerRolDeUsuario as obtenerRolUsuario } from "@/lib/auth";
-import { auth } from "@/lib/firebaseConfig";
-import { onAuthStateChanged } from "firebase/auth";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { toast } from "react-hot-toast";
-import { Menu, X } from "lucide-react"; 
-import Link from "next/link";
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter, usePathname } from 'next/navigation';
+import { onAuthStateChanged } from 'firebase/auth';
+import {
+  collection,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  doc
+} from 'firebase/firestore';
+import { Menu as MenuIcon, X, Home, Users, DollarSign, BarChart2, Settings } from 'lucide-react';
+import { auth, db } from '@/lib/firebaseConfig';
+import { obtenerRolDeUsuario } from '@/lib/auth';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent
+} from '@/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell
+} from '@/components/ui/table';
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem
+} from '@/components/ui/select';
+import { toast } from 'react-hot-toast';
 
 interface Usuario {
   id: string;
   nombre: string;
   email: string;
-  rol: "Admin" | "Gestor" | "Usuario";
+  rol: 'Admin' | 'Gestor' | 'Usuario';
 }
+
+// Navegación principal
+const NAV_ITEMS = [
+  { href: '/',         icon: Home,       label: 'Inicio'    },
+  { href: '/clientes', icon: Users,      label: 'Clientes'  },
+  { href: '/pagos',    icon: DollarSign, label: 'Pagos'     },
+  { href: '/reportes', icon: BarChart2,  label: 'Reportes'  },
+];
+// Submenú de administración
+const ADMIN_ITEMS = [
+  { href: '/admin/cartera',  icon: Settings,    label: 'Cartera'      },
+  { href: '/admin/usuarios', icon: Users,       label: 'Usuarios'     },
+  { href: '/devoluciones',   icon: DollarSign,  label: 'Devoluciones' },
+];
 
 export default function UsuariosPage() {
   const router = useRouter();
+  const path = usePathname();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
@@ -31,16 +68,13 @@ export default function UsuariosPage() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    const verificarAutenticacion = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        console.log("⚠️ No hay usuario autenticado, redirigiendo a login...");
-        router.replace("/login");
+    return onAuthStateChanged(auth, async user => {
+      if (!user) {
+        router.replace('/login');
       } else {
-        console.log(`✅ Usuario autenticado: ${firebaseUser.uid}`);
-        const userRol = await obtenerRolUsuario();
-        if (userRol !== "Admin") {
-          console.log("🚫 Usuario no autorizado, redirigiendo a inicio...");
-          router.replace("/");
+        const userRol = await obtenerRolDeUsuario();
+        if (userRol !== 'Admin') {
+          router.replace('/');
         } else {
           setRol(userRol);
           cargarUsuarios();
@@ -48,138 +82,225 @@ export default function UsuariosPage() {
       }
       setAuthChecked(true);
     });
-
-    return () => verificarAutenticacion();
   }, [router]);
 
   const cargarUsuarios = async () => {
     try {
-      console.log("🔄 Cargando usuarios desde Firestore...");
-      const snapshot = await getDocs(collection(db, "usuarios"));
-      const usuariosLista = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Usuario));
-
-      if (usuariosLista.length === 0) {
-        console.log("⚠️ No se encontraron usuarios en Firestore.");
-      } else {
-        console.log("✅ Usuarios cargados:", usuariosLista);
-      }
-
-      setUsuarios(usuariosLista);
-    } catch (error) {
-      console.error("🚨 Error al cargar usuarios:", error);
-      toast.error("Error al cargar usuarios");
+      const snap = await getDocs(collection(db, 'usuarios'));
+      console.log('🔥 usuarios encontrados:', snap.size);
+      const lista = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as Usuario));
+      console.log(lista);
+      setUsuarios(lista);
+    } catch (err) {
+      console.error('Error al cargar usuarios:', err);
+      toast.error('Error al cargar usuarios');
     } finally {
       setLoading(false);
     }
   };
 
-  const cambiarRol = async (id: string, nuevoRol: "Admin" | "Gestor" | "Usuario") => {
+  const cambiarRol = async (id: string, nuevoRol: Usuario['rol']) => {
     try {
-      await updateDoc(doc(db, "usuarios", id), { rol: nuevoRol });
-      toast.success("Rol actualizado correctamente");
+      await updateDoc(doc(db, 'usuarios', id), { rol: nuevoRol });
+      toast.success('Rol actualizado');
       cargarUsuarios();
-    } catch (error) {
-      console.error(error);
-      toast.error("Error al actualizar el rol");
+    } catch (err) {
+      console.error('Error al actualizar rol:', err);
+      toast.error('Error al actualizar rol');
     }
   };
 
   const eliminarUsuario = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "usuarios", id));
-      toast.success("Usuario eliminado correctamente");
-      setUsuarios(usuarios.filter((user) => user.id !== id));
-    } catch (error) {
-      console.error(error);
-      toast.error("Error al eliminar usuario");
+      await deleteDoc(doc(db, 'usuarios', id));
+      toast.success('Usuario eliminado');
+      setUsuarios(u => u.filter(x => x.id !== id));
+    } catch (err) {
+      console.error('Error al eliminar usuario:', err);
+      toast.error('Error al eliminar usuario');
     }
   };
 
-  // 🔥 Bloqueo total: No mostrar nada hasta verificar la autenticación
-  if (!authChecked) {
-    return <div className="w-screen h-screen flex items-center justify-center"><p>Cargando...</p></div>;
-  }
-
-  if (!rol) return null; // Si no tiene rol, no mostrar la interfaz
+  if (!authChecked) return null;
+  if (!rol) return null;
 
   return (
-    <div className="container mx-auto p-6">
-      {/* Menú responsive */}
-      <div className="bg-gray-800 text-white p-4 flex justify-between items-center md:hidden">
-        <span className="text-lg font-semibold">Gestión de Usuarios</span>
-        <button onClick={() => setMenuOpen(!menuOpen)} className="focus:outline-none">
-          {menuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
-      </div>
-
-      {/* Menú hamburguesa en móviles */}
-      {menuOpen && (
-        <div className="bg-gray-800 text-white flex flex-col p-4 space-y-2 md:hidden">
-          <Link href="/" className="py-2 px-4 hover:bg-gray-700 rounded">Inicio</Link>
-          <Link href="/clientes" className="py-2 px-4 hover:bg-gray-700 rounded">Clientes</Link>
-          <Link href="/pagos" className="py-2 px-4 hover:bg-gray-700 rounded">Pagos</Link>
-          <Link href="/reportes" className="py-2 px-4 hover:bg-gray-700 rounded">Reportes</Link>
+    <div className="min-h-screen flex bg-gray-50">
+      {/* Sidebar desktop */}
+      <aside className="hidden md:flex md:flex-col w-64 bg-white border-r">
+        <div className="h-16 flex items-center justify-center font-bold border-b">
+          Administración
         </div>
-      )}
+        <nav className="p-4 flex-1 space-y-2 overflow-y-auto">
+          {NAV_ITEMS.map(it => (
+            <Link
+              key={it.href}
+              href={it.href}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-md transition ${
+                path === it.href
+                  ? 'bg-gray-200 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <it.icon className="w-5 h-5" />
+              <span>{it.label}</span>
+            </Link>
+          ))}
+          <div className="mt-6 border-t pt-4 border-gray-200">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+              Administración
+            </h3>
+            {ADMIN_ITEMS.map(it => (
+              <Link
+                key={it.href}
+                href={it.href}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-md transition ${
+                  path === it.href
+                    ? 'bg-gray-200 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <it.icon className="w-5 h-5" />
+                <span>{it.label}</span>
+              </Link>
+            ))}
+          </div>
+        </nav>
+      </aside>
 
-      {/* Menú en escritorio */}
-      <div className="hidden md:flex justify-between bg-gray-800 text-white p-4 rounded-lg">
-        <span className="text-lg font-semibold">Gestión de Usuarios</span>
-        <div className="flex space-x-4">
-          <Link href="/" className="py-2 px-4 hover:bg-gray-700 rounded">Inicio</Link>
-          <Link href="/clientes" className="py-2 px-4 hover:bg-gray-700 rounded">Clientes</Link>
-          <Link href="/pagos" className="py-2 px-4 hover:bg-gray-700 rounded">Pagos</Link>
-          <Link href="/reportes" className="py-2 px-4 hover:bg-gray-700 rounded">Reportes</Link>
-        </div>
-      </div>
+      {/* Main area */}
+      <div className="flex-1 flex flex-col">
+        {/* Header móvil */}
+        <header className="md:hidden flex items-center justify-between h-16 px-4 bg-white border-b">
+          <span className="font-bold">Gestión de Usuarios</span>
+          <Button variant="ghost" onClick={() => setMenuOpen(v => !v)}>
+            {menuOpen ? <X size={24} /> : <MenuIcon size={24} />}
+          </Button>
+        </header>
 
-      {/* Contenido principal */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Gestión de Usuarios</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <p className="text-center">Cargando usuarios...</p>
-          ) : usuarios.length === 0 ? (
-            <p className="text-center">No hay usuarios registrados.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Rol</TableHead>
-                  <TableHead>Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {usuarios.map((usuario) => (
-                  <TableRow key={usuario.id}>
-                    <TableCell>{usuario.nombre}</TableCell>
-                    <TableCell>{usuario.email}</TableCell>
-                    <TableCell>
-                      <Select onValueChange={(valor) => cambiarRol(usuario.id, valor as "Admin" | "Gestor")} defaultValue={usuario.rol}>
-                        <SelectTrigger>{usuario.rol}</SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Admin">Admin</SelectItem>
-                          <SelectItem value="Gestor">Gestor</SelectItem>
-                          <SelectItem value="Usuario">Usuario</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="destructive" onClick={() => eliminarUsuario(usuario.id)}>
-                        Eliminar
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+        {/* Drawer móvil */}
+        {menuOpen && (
+          <div className="md:hidden fixed inset-0 z-30 bg-black/25">
+            <div className="fixed top-0 left-0 bottom-0 w-64 bg-white p-4">
+              <div className="flex justify-between items-center mb-6">
+                <span className="font-bold text-xl">Administración</span>
+                <Button variant="ghost" onClick={() => setMenuOpen(false)}>
+                  <X size={24} />
+                </Button>
+              </div>
+              <nav className="space-y-2">
+                {NAV_ITEMS.map(it => (
+                  <Link
+                    key={it.href}
+                    href={it.href}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
+                  >
+                    <it.icon className="w-5 h-5" />
+                    <span>{it.label}</span>
+                  </Link>
                 ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                <div className="mt-6 border-t pt-4 border-gray-200">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                    Administración
+                  </h3>
+                  {ADMIN_ITEMS.map(it => (
+                    <Link
+                      key={it.href}
+                      href={it.href}
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
+                    >
+                      <it.icon className="w-5 h-5" />
+                      <span>{it.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              </nav>
+            </div>
+          </div>
+        )}
+
+        {/* Contenido */}
+        <main className="flex-1 p-4 md:p-6 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Gestión de Usuarios</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <p className="text-center">Cargando usuarios...</p>
+              ) : usuarios.length === 0 ? (
+                <p className="text-center">No hay usuarios registrados.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nombre</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Rol</TableHead>
+                        <TableHead>Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {usuarios.map(u => (
+                        <TableRow key={u.id}>
+                          <TableCell>{u.nombre}</TableCell>
+                          <TableCell>{u.email}</TableCell>
+                          <TableCell>
+                            <Select
+                              defaultValue={u.rol}
+                              onValueChange={v => cambiarRol(u.id, v as Usuario['rol'])}
+                            >
+                              <SelectTrigger>{u.rol}</SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Admin">Admin</SelectItem>
+                                <SelectItem value="Gestor">Gestor</SelectItem>
+                                <SelectItem value="Usuario">Usuario</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="destructive"
+                              onClick={() => eliminarUsuario(u.id)}
+                            >
+                              Eliminar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </main>
+
+        {/* Bottom nav móvil */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t flex justify-around h-16">
+          {NAV_ITEMS.map(it => {
+            const active = path === it.href;
+            return (
+              <Link
+                key={it.href}
+                href={it.href}
+                className="flex flex-col items-center justify-center"
+              >
+                <it.icon
+                  size={20}
+                  className={active ? 'text-blue-500' : 'text-gray-400'}
+                />
+                <span className={`text-xs ${active ? 'text-blue-500' : 'text-gray-400'}`}>
+                  {it.label}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
     </div>
   );
 }

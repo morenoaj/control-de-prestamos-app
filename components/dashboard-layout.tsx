@@ -27,28 +27,31 @@ const ADMIN_ITEMS = [
   { href: '/devoluciones',   icon: DollarSign, label: 'Devoluciones' },
 ];
 
-export default function DashboardPage() {
+type Props = {
+  title?: string;
+  children: React.ReactNode;
+};
+
+export default function DashboardLayout({ title = 'Dashboard', children }: Props) {
   const [mobileMenu, setMobileMenu] = useState(false);
-  const currentPath = usePathname();
+  const path = usePathname();
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      {/* SIDEBAR (escritorio) */}
+      {/* SIDEBAR desktop */}
       <aside className="hidden md:flex md:flex-col w-64 bg-white border-r">
         <div className="h-16 flex items-center justify-center text-2xl font-bold border-b">
-          Dash
+          {title}
         </div>
         <nav className="flex-1 overflow-y-auto p-4 space-y-2">
           {NAV_ITEMS.map(item => (
             <Link
               key={item.href}
               href={item.href}
-              className={`
-                flex items-center space-x-2 px-4 py-2 rounded-md transition
-                ${currentPath === item.href
+              className={`flex items-center space-x-2 px-4 py-2 rounded-md transition
+                ${path === item.href
                   ? 'bg-gray-200 text-gray-900'
-                  : 'text-gray-600 hover:bg-gray-100'}
-              `}
+                  : 'text-gray-600 hover:bg-gray-100'}`}
             >
               <item.icon className="w-5 h-5" />
               <span>{item.label}</span>
@@ -57,18 +60,16 @@ export default function DashboardPage() {
 
           <div className="mt-6 border-t pt-4 border-gray-200">
             <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
-              Admin
+              Administración
             </h3>
             {ADMIN_ITEMS.map(item => (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`
-                  flex items-center space-x-2 px-4 py-2 rounded-md transition
-                  ${currentPath === item.href
+                className={`flex items-center space-x-2 px-4 py-2 rounded-md transition
+                  ${path === item.href
                     ? 'bg-gray-200 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-100'}
-                `}
+                    : 'text-gray-600 hover:bg-gray-100'}`}
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
@@ -82,8 +83,8 @@ export default function DashboardPage() {
       <div className="flex-1 flex flex-col">
         {/* HEADER móvil */}
         <header className="md:hidden flex items-center justify-between h-16 px-4 bg-white border-b">
-          <span className="text-lg font-bold">Dash</span>
-          <Button variant="ghost" onClick={() => setMobileMenu(!mobileMenu)}>
+          <span className="text-lg font-bold">{title}</span>
+          <Button variant="ghost" onClick={() => setMobileMenu(v => !v)}>
             <MenuIcon size={24} />
           </Button>
         </header>
@@ -93,7 +94,7 @@ export default function DashboardPage() {
           <div className="md:hidden fixed inset-0 z-40 bg-black/25">
             <div className="fixed top-0 left-0 bottom-0 w-64 bg-white p-4">
               <div className="flex items-center justify-between mb-6">
-                <span className="text-xl font-bold">Dash</span>
+                <span className="text-xl font-bold">{title}</span>
                 <Button variant="ghost" onClick={() => setMobileMenu(false)}>
                   <X size={24} />
                 </Button>
@@ -103,8 +104,8 @@ export default function DashboardPage() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100 transition"
                     onClick={() => setMobileMenu(false)}
+                    className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100 transition"
                   >
                     <item.icon className="w-5 h-5" />
                     <span>{item.label}</span>
@@ -112,14 +113,14 @@ export default function DashboardPage() {
                 ))}
                 <div className="mt-6 border-t pt-4 border-gray-200">
                   <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
-                    Admin
+                    Administración
                   </h3>
                   {ADMIN_ITEMS.map(item => (
                     <Link
                       key={item.href}
                       href={item.href}
-                      className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100 transition"
                       onClick={() => setMobileMenu(false)}
+                      className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100 transition"
                     >
                       <item.icon className="w-5 h-5" />
                       <span>{item.label}</span>
@@ -132,16 +133,12 @@ export default function DashboardPage() {
         )}
 
         {/* CONTENIDO */}
-        <main className="flex-1 p-4 md:p-6">
-          <div className="grid place-items-center h-full">
-            <p className="text-gray-500">Bienvenido al Dashboard</p>
-          </div>
-        </main>
+        <main className="flex-1 p-4 md:p-6">{children}</main>
 
         {/* NAV INFERIOR móvil */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around h-16">
           {NAV_ITEMS.map(item => {
-            const active = currentPath === item.href;
+            const active = path === item.href;
             return (
               <Link
                 key={item.href}
@@ -149,8 +146,8 @@ export default function DashboardPage() {
                 className="flex flex-col items-center justify-center"
               >
                 <item.icon
-                  className={active ? 'text-blue-500' : 'text-gray-400'}
                   size={20}
+                  className={active ? 'text-blue-500' : 'text-gray-400'}
                 />
                 <span className={`text-xs ${active ? 'text-blue-500' : 'text-gray-400'}`}>
                   {item.label}
