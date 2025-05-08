@@ -1,36 +1,145 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Control de Préstamos App
 
-## Getting Started
+> Plataforma web para la gestión integral de préstamos personales, pagos e inversiones.
 
-First, run the development server:
+![Image](https://github.com/user-attachments/assets/3c5c761a-190e-4e04-9b7c-b249770d61eb)
+
+
+---
+
+## 📌 Descripción
+
+Control de Préstamos App, desarrollado con Next.js y TypeScript, ofrece:
+
+- Autenticación segura con Google o email/contraseña.  
+- Gestión de clientes y préstamos.  
+- Registro y aplicación de pagos a capital e intereses.  
+- Control de aportes y devoluciones a inversionistas.  
+- Reportes exportables en Excel y PDF.  
+
+---
+
+## 🚀 Módulos
+
+### 🔒 Login  
+![Image](https://github.com/user-attachments/assets/30b542f7-76e4-4f1f-911d-bcb5b7230f9e)
+Inicia sesión con Google o email/contraseña y restablece tu clave si es necesario.
+
+### 📊 Inicio (Dashboard)  
+![Image](https://github.com/user-attachments/assets/3c5c761a-190e-4e04-9b7c-b249770d61eb)
+Visión general con métricas clave: clientes, préstamos activos, capital prestado y recuperado, intereses generados, ratio de recuperación y tendencias.
+
+### 👥 Clientes - 💰 Préstamos
+![Image](https://github.com/user-attachments/assets/4501feb6-3532-49f1-b4dd-f22b55fc40e3) 
+👥 Registro, edición y búsqueda de clientes. Incluye reporte detallado de préstamos e intereses por cliente.<br>💰 Alta de nuevos préstamos, selección de cliente, fecha, monto y método de pago. Muestra saldo disponible en cartera.
+
+### 💵 Pagos  
+![Image](https://github.com/user-attachments/assets/b108ee92-814c-4569-92e6-01903ae241fd)
+Registro de pagos a capital e intereses, asignación a préstamos existentes y actualización de saldos.
+
+### 📋 Reportes  
+![Image](https://github.com/user-attachments/assets/5e1b35b4-3cbf-4ab0-92ba-cf6b5ed67300) 
+Resumen global de préstamos activos, saldos, intereses y exportación de datos en Excel o PDF.
+
+### 📂 Cartera  
+![Image](https://github.com/user-attachments/assets/4bc4d201-b81c-4862-8aa4-d63983b2f45d)  
+Control de aportes de inversionistas: tendencia, registro de nuevos aportes y visualización de ganancias estimadas.
+
+### 👤 Usuarios  
+![Image](https://github.com/user-attachments/assets/527d6de5-9e7c-4303-a942-1a4e350317da) 
+Gestión de cuentas y roles (Admin/Usuario). Permite crear, asignar roles y eliminar usuarios.
+
+### 🔄 Devoluciones  
+![Image](https://github.com/user-attachments/assets/129daad2-5aae-41d8-a5ea-52d90f47b712)
+Proceso de devolución de capital e intereses a inversionistas y seguimiento histórico de transacciones.
+
+---
+
+## ⚙️ Instalación y uso
+
+1. Clona el repositorio:
+
+```bash
+git clone https://github.com/tu-usuario/control-de-prestamos-app.git
+cd control-de-prestamos-app
+```
+
+2. Instala dependencias:
+
+```bash
+npm install
+# o yarn install
+# o pnpm install
+```
+
+3. Ejecuta en modo desarrollo:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+4. Abre tu navegador en:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 🗂 Estructura del proyecto
 
-To learn more about Next.js, take a look at the following resources:
+```
+control-de-prestamos-app/
+├─ app/                  # Rutas, layouts y pages de Next.js
+├─ components/           # Componentes reutilizables
+├─ context/              # Firebase, Auth y contexto global
+├─ hooks/                # Hooks personalizados
+├─ public/               # Imágenes y assets estáticos
+└─ styles/               # Tailwind CSS y módulos de estilo
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 📚 Tecnologías
 
-## Deploy on Vercel
+- Next.js 14  
+- TypeScript  
+- Firebase (Auth, Firestore)  
+- Tailwind CSS  
+- React Context  
+- Recharts para gráficos  
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🤝 Cómo contribuir
+
+1. Haz fork del repositorio.  
+2. Crea una rama:
+```bash
+git checkout -b feature/tu-funcionalidad
+```
+3. Realiza cambios y haz commit:
+```bash
+git commit -m "feat: descripción breve"
+```
+4. Empuja tu rama y abre un Pull Request.
+
+---
+
+## 📝 Licencia
+
+Licencia MIT. Consulta el archivo [LICENSE](LICENSE) para más información.
+
+---
+
+## 📫 Contacto
+
+- **Autor:** Alex Moreno  
+- **Email:** [morenoaj1@outlook.com](mailto:morenoaj1@outlook.com)  
+- **LinkedIn:** [morenoaj1](https://linkedin.com/in/morenoaj1)  
+- **Instagram:** [@morenoaj.dev](https://instagram.com/morenoaj.dev)
+- **Web:** [morenoaj.github.io](https://morenoaj.github.io/)
+
+---
+
+¡Gracias por usar Control de Préstamos App! 🚀
