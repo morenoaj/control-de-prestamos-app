@@ -1,165 +1,233 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import {
-  Home,
-  Users,
-  DollarSign,
-  BarChart2,
-  Settings,
-  Menu as MenuIcon,
-  X
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import React, { useEffect, useState } from "react";
+import DashboardLayout from "@/components/dashboard-layout";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from "recharts";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebaseConfig";
 
-const NAV_ITEMS = [
-  { href: '/',         icon: Home,        label: 'Inicio'       },
-  { href: '/clientes', icon: Users,       label: 'Clientes'     },
-  { href: '/pagos',    icon: DollarSign,  label: 'Pagos'        },
-  { href: '/reportes', icon: BarChart2,   label: 'Reportes'     },
-];
-
-const ADMIN_ITEMS = [
-  { href: '/admin/cartera',  icon: Settings,   label: 'Cartera'      },
-  { href: '/admin/usuarios', icon: Users,      label: 'Usuarios'     },
-  { href: '/devoluciones',   icon: DollarSign, label: 'Devoluciones' },
-];
+// --- Helpers de fecha ---
+function parseDateYMD(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function formatDateShort(dt: Date): string {
+  return format(dt, "d/MM", { locale: es });
+}
+function quincenaStart(dt: Date): Date {
+  const day = dt.getDate();
+  return day <= 15
+    ? new Date(dt.getFullYear(), dt.getMonth(), 1)
+    : new Date(dt.getFullYear(), dt.getMonth(), 16);
+}
 
 export default function DashboardPage() {
-  const [mobileMenu, setMobileMenu] = useState(false);
-  const currentPath = usePathname();
+  // Fecha y saludo
+  const today = new Date();
+  const todayFmt = format(today, "d 'de' MMMM 'de' yyyy", { locale: es });
+
+  // Estados
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [prestamos, setPrestamos] = useState<any[]>([]);
+  const [pagos, setPagos]         = useState<any[]>([]);
+
+  // Métricas
+  const [totalClientes, setTotalClientes] = useState(0);
+  const [activosCount, setActivosCount]   = useState(0);
+  const [capitalPrestado, setCapitalPrestado] = useState(0);
+  const [capitalRecuperado, setCapitalRecuperado] = useState(0);
+  const [ratioRecup, setRatioRecup]       = useState(0);
+  const [interesesTotal, setInteresesTotal] = useState(0);
+  const [interesesNext, setInteresesNext] = useState(0);
+  const [prestadoQuincena, setPrestadoQuincena] = useState(0);
+
+  // Tendencia data
+  const [tendencia, setTendencia] = useState<{ fecha: string; prest: number; recup: number }[]>([]);
+
+  // Cliente → intereses pendientes
+  const [deudaClientes, setDeudaClientes] = useState<{ nombre: string; deuda: number }[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      // 1) Carga raw
+      const [cliSnap, preSnap, pagSnap] = await Promise.all([
+        getDocs(collection(db, "clientes")),
+        getDocs(collection(db, "prestamos")),
+        getDocs(collection(db, "pagos")),
+      ]);
+      const cliArr = cliSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      const preArr = preSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      const pagArr = pagSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+      setClientes(cliArr);
+      setPrestamos(preArr);
+      setPagos(pagArr);
+
+      // 2) Total clientes
+      setTotalClientes(cliArr.length);
+
+      // 3) Préstamos activos & capital prestado
+      const activos = preArr.filter(p => p.estado === "activo");
+      setActivosCount(activos.length);
+      const sumaPrest = preArr.reduce((s, p) => s + (p.monto || 0), 0);
+      setCapitalPrestado(sumaPrest);
+
+      // 4) Capital recuperado por pagos de capital
+      const sumaRecup = pagArr.reduce((s, p) => s + (p.montoCapital || 0), 0);
+      setCapitalRecuperado(sumaRecup);
+
+      // 5) Ratio
+      setRatioRecup(sumaRecup / (sumaPrest || 1));
+
+      // 6) Intereses totales acumulados (cada pagoInteres + devengados)
+      //   suponemos un campo p.interesAcumulado en préstamos
+      const sumaInter = preArr.reduce((s, p) => s + (p.interesAcumulado || 0), 0)
+                        + pagArr.reduce((s, p) => s + (p.montoInteres || 0), 0);
+      setInteresesTotal(sumaInter);
+
+      // 7) Intereses próxima quincena (15% sobre saldo capital de cada activo)
+      const intNext = activos.reduce((s, p) => s + ((p.saldoCapital||0) * 0.15), 0);
+      setInteresesNext(intNext);
+
+      // 8) Capital prestado en esta quincena
+      const qStart = quincenaStart(today);
+      const prestQ = preArr
+        .filter(p => {
+          const dt = parseDateYMD(p.fechaInicio);
+          return dt >= qStart && dt <= today;
+        })
+        .reduce((s, p) => s + (p.monto || 0), 0);
+      setPrestadoQuincena(prestQ);
+
+      // 9) Tendencia (últimas 6 quincenas)
+      const arr: any[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const ref = new Date(today);
+        ref.setDate(ref.getDate() - i * 15);
+        const start = quincenaStart(ref);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 14);
+        const label = formatDateShort(start);
+        const sumPrest = preArr
+          .filter(p => {
+            const dt = parseDateYMD(p.fechaInicio);
+            return dt >= start && dt <= end;
+          })
+          .reduce((s, p) => s + (p.monto||0), 0);
+        const sumRec = pagArr
+          .filter(p => {
+            const dt = parseDateYMD(p.fechaPago);
+            return dt >= start && dt <= end;
+          })
+          .reduce((s, p) => s + (p.montoCapital||0), 0);
+        arr.push({ fecha: label, prest: sumPrest, recup: sumRec });
+      }
+      setTendencia(arr);
+
+      // 10) Clientes con intereses pendientes
+      const deudaMap: Record<string, number> = {};
+      preArr.forEach(p => {
+        if ((p.interesAcumulado||0) > 0) {
+          deudaMap[p.clienteId] = (deudaMap[p.clienteId]||0) + (p.interesAcumulado||0);
+        }
+      });
+      setDeudaClientes(
+        Object.entries(deudaMap).map(([cid, d]) => ({
+          nombre: cliArr.find(c=>c.id===cid)?.nombre||"–",
+          deuda: d
+        }))
+      );
+    })();
+  }, []);
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
-      {/* SIDEBAR (escritorio) */}
-      <aside className="hidden md:flex md:flex-col w-64 bg-white border-r">
-        <div className="h-16 flex items-center justify-center text-2xl font-bold border-b">
-          Dash
-        </div>
-        <nav className="flex-1 overflow-y-auto p-4 space-y-2">
-          {NAV_ITEMS.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`
-                flex items-center space-x-2 px-4 py-2 rounded-md transition
-                ${currentPath === item.href
-                  ? 'bg-gray-200 text-gray-900'
-                  : 'text-gray-600 hover:bg-gray-100'}
-              `}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </Link>
-          ))}
-
-          <div className="mt-6 border-t pt-4 border-gray-200">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
-              Admin
-            </h3>
-            {ADMIN_ITEMS.map(item => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`
-                  flex items-center space-x-2 px-4 py-2 rounded-md transition
-                  ${currentPath === item.href
-                    ? 'bg-gray-200 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-100'}
-                `}
-              >
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
-              </Link>
-            ))}
-          </div>
-        </nav>
-      </aside>
-
-      {/* MAIN */}
-      <div className="flex-1 flex flex-col">
-        {/* HEADER móvil */}
-        <header className="md:hidden flex items-center justify-between h-16 px-4 bg-white border-b">
-          <span className="text-lg font-bold">Dash</span>
-          <Button variant="ghost" onClick={() => setMobileMenu(!mobileMenu)}>
-            <MenuIcon size={24} />
-          </Button>
-        </header>
-
-        {/* MENÚ móvil */}
-        {mobileMenu && (
-          <div className="md:hidden fixed inset-0 z-40 bg-black/25">
-            <div className="fixed top-0 left-0 bottom-0 w-64 bg-white p-4">
-              <div className="flex items-center justify-between mb-6">
-                <span className="text-xl font-bold">Dash</span>
-                <Button variant="ghost" onClick={() => setMobileMenu(false)}>
-                  <X size={24} />
-                </Button>
-              </div>
-              <nav className="space-y-2">
-                {NAV_ITEMS.map(item => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100 transition"
-                    onClick={() => setMobileMenu(false)}
-                  >
-                    <item.icon className="w-5 h-5" />
-                    <span>{item.label}</span>
-                  </Link>
-                ))}
-                <div className="mt-6 border-t pt-4 border-gray-200">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
-                    Admin
-                  </h3>
-                  {ADMIN_ITEMS.map(item => (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100 transition"
-                      onClick={() => setMobileMenu(false)}
-                    >
-                      <item.icon className="w-5 h-5" />
-                      <span>{item.label}</span>
-                    </Link>
-                  ))}
-                </div>
-              </nav>
-            </div>
-          </div>
-        )}
-
-        {/* CONTENIDO */}
-        <main className="flex-1 p-4 md:p-6">
-          <div className="grid place-items-center h-full">
-            <p className="text-gray-500">Bienvenido al Dashboard</p>
-          </div>
-        </main>
-
-        {/* NAV INFERIOR móvil */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around h-16">
-          {NAV_ITEMS.map(item => {
-            const active = currentPath === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex flex-col items-center justify-center"
-              >
-                <item.icon
-                  className={active ? 'text-blue-500' : 'text-gray-400'}
-                  size={20}
-                />
-                <span className={`text-xs ${active ? 'text-blue-500' : 'text-gray-400'}`}>
-                  {item.label}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
+    <DashboardLayout>
+      {/* Saludo */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">¡Hola, {/** aquí tu nombre */}!</h1>
+        <span className="text-gray-500">{todayFmt}</span>
       </div>
-    </div>
+
+      {/* Grid de KPIs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <CardHeader><CardTitle>Total Clientes</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">{totalClientes}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Préstamos Activos</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">{activosCount}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Capital Prestado</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">${capitalPrestado.toLocaleString()}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Capital Recuperado</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">${capitalRecuperado.toLocaleString()}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Ratio Recuperación</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">{(ratioRecup*100).toFixed(1)}%</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Intereses Generados</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">${interesesTotal.toLocaleString()}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Próxima Quincena</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">${interesesNext.toFixed(0)}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Prestado en Quincena</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-bold">${prestadoQuincena.toLocaleString()}</CardContent>
+        </Card>
+      </div>
+
+      {/* Tendencia */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <Card className="h-64">
+          <CardHeader><CardTitle>Prestado vs Recuperado</CardTitle></CardHeader>
+          <CardContent className="h-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={tendencia}>
+                <XAxis dataKey="fecha" />
+                <YAxis />
+                <Tooltip formatter={(v:any) => `$${v.toLocaleString()}`} />
+                <Area dataKey="prest" name="Prestado" stroke="#4ade80" fill="#d1fae5" />
+                <Area dataKey="recup" name="Recuperado" stroke="#60a5fa" fill="#dbf4ff" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Clientes con deuda */}
+      <Card className="mb-6">
+        <CardHeader><CardTitle>Intereses Pendientes</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Monto Intereses</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {deudaClientes.map((d, i) => (
+                <TableRow key={i}>
+                  <TableCell>{d.nombre}</TableCell>
+                  <TableCell>${d.deuda.toFixed(2)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </DashboardLayout>
   );
 }

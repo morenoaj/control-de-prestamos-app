@@ -1,9 +1,17 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu as MenuIcon, X, Home, Users, DollarSign, BarChart2, Settings } from 'lucide-react';
+import {
+  Menu as MenuIcon,
+  X,
+  Home,
+  Users,
+  DollarSign,
+  BarChart2,
+  Settings
+} from 'lucide-react';
 import { auth, db } from '@/lib/firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
@@ -47,9 +55,9 @@ interface Inversionista { id: string; nombre: string; }
 interface AporteRaw {
   inversionistaId: string;
   monto: number;
-  porcentajeGanancia: number;
+  porcentajeGanancia: number; // % por quincena
   fechaAporte?: Timestamp;
-  fecha?: string;
+  fecha?: string;              // fallback ISO string
   estado: 'activo' | 'devuelto';
   fechaDevolucion?: Timestamp;
 }
@@ -68,21 +76,20 @@ interface Movimiento {
   detalle: { capital: number; ganancia: number };
 }
 
-// Navegación principal
+// Navegación
 const NAV_ITEMS = [
-  { href: '/',         icon: Home,       label: 'Inicio'    },
-  { href: '/clientes', icon: Users,      label: 'Clientes'  },
-  { href: '/pagos',    icon: DollarSign, label: 'Pagos'     },
-  { href: '/reportes', icon: BarChart2,  label: 'Reportes'  },
+  { href: '/',         icon: Home,       label: 'Inicio'     },
+  { href: '/clientes', icon: Users,      label: 'Clientes'   },
+  { href: '/pagos',    icon: DollarSign, label: 'Pagos'      },
+  { href: '/reportes', icon: BarChart2,  label: 'Reportes'   },
 ];
-// Submenú de administración
 const ADMIN_ITEMS = [
-  { href: '/admin/cartera',  icon: Settings,    label: 'Cartera'      },
-  { href: '/admin/usuarios', icon: Users,       label: 'Usuarios'     },
-  { href: '/devoluciones',   icon: DollarSign,  label: 'Devoluciones' },
+  { href: '/admin/cartera',  icon: Settings,   label: 'Cartera'      },
+  { href: '/admin/usuarios', icon: Users,      label: 'Usuarios'     },
+  { href: '/devoluciones',   icon: DollarSign, label: 'Devoluciones' },
 ];
 
-// Formatea Timestamp o ISO-date a texto largo en español
+// formatea fecha timestamp o iso
 const formatDate = (value?: Timestamp | string) => {
   if (!value) return '-';
   let dt: Date;
@@ -97,9 +104,37 @@ const formatDate = (value?: Timestamp | string) => {
   }).format(dt);
 };
 
+// convierte cualquier fecha a Date
+const toDate = (value?: Timestamp | string): Date | null => {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const [y, m, d] = value.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(value.seconds * 1000);
+};
+
+// cuenta quincenas enteras (15 o final de mes) en (start, today]
+const countQuincenas = (start: Date, end: Date): number => {
+  let count = 0;
+  const d = new Date(start);
+  // empezamos al día siguiente
+  d.setDate(d.getDate() + 1);
+  while (d <= end) {
+    const day = d.getDate();
+    const month = d.getMonth();
+    const year = d.getFullYear();
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    if (day === 15 || day === lastDay) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+};
+
 export default function DevolucionesPage() {
   const path = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+
   const [inversionistas, setInversionistas] = useState<Inversionista[]>([]);
   const [aportes, setAportes] = useState<Aporte[]>([]);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
@@ -111,12 +146,9 @@ export default function DevolucionesPage() {
   const [capitalDevolver, setCapitalDevolver] = useState(0);
   const [gananciaDevolver, setGananciaDevolver] = useState(0);
 
-  // auth + carga datos
   useEffect(() => {
     onAuthStateChanged(auth, user => {
-      if (!user) return;
-      // no hay restricción de rol aquí
-      cargarDatos();
+      if (user) cargarDatos();
     });
   }, []);
 
@@ -167,7 +199,6 @@ export default function DevolucionesPage() {
     const total = capitalDevolver + gananciaDevolver;
     const fecha = Timestamp.now();
     try {
-      // actualiza aporte
       const refA = doc(db, 'aportes', seleccionado.id);
       const snapA = await getDoc(refA);
       const data = snapA.data() as AporteRaw;
@@ -179,7 +210,6 @@ export default function DevolucionesPage() {
       }
       await updateDoc(refA, upd);
 
-      // actualiza cartera
       const refC = doc(db, 'cartera', 'estado');
       const snapC = await getDoc(refC);
       const totalDisp = (snapC.data() as any).totalDisponible;
@@ -189,7 +219,6 @@ export default function DevolucionesPage() {
       }
       await updateDoc(refC, { totalDisponible: totalDisp - total });
 
-      // registra movimiento
       const movRef = doc(collection(db, 'movimientos'));
       const mv: Movimiento = {
         id: movRef.id,
@@ -204,11 +233,8 @@ export default function DevolucionesPage() {
       await setDoc(movRef, mv);
 
       toast.success('Devolución registrada');
-      // refresca UI
-      setAportes(aList =>
-        aList.map(a => a.id === seleccionado.id ? { ...a, ...upd } : a)
-      );
-      setMovimientos(mvList => [mv, ...mvList]);
+      setAportes(list => list.map(a => a.id === seleccionado.id ? { ...a, ...upd } : a));
+      setMovimientos(list => [mv, ...list]);
       setOpen(false);
     } catch (err) {
       console.error(err);
@@ -216,26 +242,31 @@ export default function DevolucionesPage() {
     }
   }
 
+  // Calcula ganancia acumulada por aporte
+  const aportesConGanancia = useMemo(() => {
+    const hoy = new Date();
+    return aportes.map(a => {
+      const fecha = toDate(a.fechaAporte ?? a.fecha) || hoy;
+      const quincenas = countQuincenas(fecha, hoy);
+      const ganAcum = quincenas * (a.monto * a.porcentajeGanancia / 100);
+      return { ...a, gananciaAcumulada: +ganAcum.toFixed(2) };
+    });
+  }, [aportes]);
+
   return (
     <div className="min-h-screen flex bg-gray-50">
-      {/* Sidebar escritorio */}
+      {/* Sidebar desktop */}
       <aside className="hidden md:flex md:flex-col w-64 bg-white border-r">
         <div className="h-16 flex items-center justify-center font-bold border-b">
           Administración
         </div>
         <nav className="p-4 flex-1 space-y-2 overflow-y-auto">
           {NAV_ITEMS.map(it => (
-            <Link
-              key={it.href}
-              href={it.href}
+            <Link key={it.href} href={it.href}
               className={`flex items-center space-x-2 px-4 py-2 rounded-md transition ${
-                path === it.href
-                  ? 'bg-gray-200 text-gray-900'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <it.icon className="w-5 h-5" />
-              <span>{it.label}</span>
+                path === it.href ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100'
+              }`}>
+              <it.icon className="w-5 h-5"/><span>{it.label}</span>
             </Link>
           ))}
           <div className="mt-6 border-t pt-4 border-gray-200">
@@ -243,53 +274,42 @@ export default function DevolucionesPage() {
               Administración
             </h3>
             {ADMIN_ITEMS.map(it => (
-              <Link
-                key={it.href}
-                href={it.href}
+              <Link key={it.href} href={it.href}
                 className={`flex items-center space-x-2 px-4 py-2 rounded-md transition ${
-                  path === it.href
-                    ? 'bg-gray-200 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <it.icon className="w-5 h-5" />
-                <span>{it.label}</span>
+                  path === it.href ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100'
+                }`}>
+                <it.icon className="w-5 h-5"/><span>{it.label}</span>
               </Link>
             ))}
           </div>
         </nav>
       </aside>
 
-      {/* Área principal */}
+      {/* Main */}
       <div className="flex-1 flex flex-col">
-        {/* Header móvil */}
+        {/* Mobile header */}
         <header className="md:hidden flex items-center justify-between h-16 px-4 bg-white border-b">
           <span className="font-bold">Devoluciones</span>
           <Button variant="ghost" onClick={() => setMenuOpen(v => !v)}>
-            {menuOpen ? <X size={24} /> : <MenuIcon size={24} />}
+            {menuOpen ? <X size={24}/> : <MenuIcon size={24}/>}
           </Button>
         </header>
 
-        {/* Drawer móvil */}
+        {/* Mobile drawer */}
         {menuOpen && (
           <div className="md:hidden fixed inset-0 z-30 bg-black/25">
             <div className="fixed top-0 left-0 bottom-0 w-64 bg-white p-4">
               <div className="flex justify-between items-center mb-6">
                 <span className="font-bold text-xl">Administración</span>
                 <Button variant="ghost" onClick={() => setMenuOpen(false)}>
-                  <X size={24} />
+                  <X size={24}/>
                 </Button>
               </div>
               <nav className="space-y-2">
                 {NAV_ITEMS.map(it => (
-                  <Link
-                    key={it.href}
-                    href={it.href}
-                    onClick={() => setMenuOpen(false)}
-                    className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
-                  >
-                    <it.icon className="w-5 h-5" />
-                    <span>{it.label}</span>
+                  <Link key={it.href} href={it.href} onClick={() => setMenuOpen(false)}
+                    className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100">
+                    <it.icon className="w-5 h-5"/><span>{it.label}</span>
                   </Link>
                 ))}
                 <div className="mt-6 border-t pt-4 border-gray-200">
@@ -297,14 +317,9 @@ export default function DevolucionesPage() {
                     Administración
                   </h3>
                   {ADMIN_ITEMS.map(it => (
-                    <Link
-                      key={it.href}
-                      href={it.href}
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
-                    >
-                      <it.icon className="w-5 h-5" />
-                      <span>{it.label}</span>
+                    <Link key={it.href} href={it.href} onClick={() => setMenuOpen(false)}
+                      className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100">
+                      <it.icon className="w-5 h-5"/><span>{it.label}</span>
                     </Link>
                   ))}
                 </div>
@@ -313,122 +328,80 @@ export default function DevolucionesPage() {
           </div>
         )}
 
-        {/* Contenido */}
+        {/* Content */}
         <main className="flex-1 p-4 md:p-6 space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Devoluciones a Inversionistas</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Devoluciones a Inversionistas</CardTitle></CardHeader>
             <CardContent>
-              {loading ? (
-                <p>Cargando...</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Inversionista</TableHead>
-                      <TableHead>Capital</TableHead>
-                      <TableHead>% Ganancia</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead>Fecha Aporte</TableHead>
-                      <TableHead>Acción</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {aportes.map(a => (
-                      <TableRow key={a.id}>
-                        <TableCell>{a.inversionistaNombre}</TableCell>
-                        <TableCell>${a.monto.toFixed(2)}</TableCell>
-                        <TableCell>{a.porcentajeGanancia}%</TableCell>
-                        <TableCell>{a.estado}</TableCell>
-                        <TableCell>{formatDate(a.fechaAporte ?? a.fecha)}</TableCell>
-                        <TableCell>
-                          <Dialog open={open} onOpenChange={setOpen}>
-                            <DialogTrigger asChild>
-                              <Button
-                                onClick={() => abrirModal(a)}
-                                disabled={a.estado !== 'activo'}
-                              >
-                                Devolver
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Devolución Parcial</DialogTitle>
-                                <DialogDescription>
-                                  Ajusta los montos y confirma.
-                                </DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label>Capital a devolver</Label>
-                                  <Input
-                                    type="number"
-                                    value={capitalDevolver}
-                                    onChange={e =>
-                                      setCapitalDevolver(Number(e.target.value))
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <Label>Interés a devolver</Label>
-                                  <Input
-                                    type="number"
-                                    value={gananciaDevolver}
-                                    onChange={e =>
-                                      setGananciaDevolver(Number(e.target.value))
-                                    }
-                                  />
-                                </div>
-                              </div>
-                              <DialogFooter>
-                                <Button onClick={confirmarDevolucion}>
-                                  Confirmar
-                                </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                        </TableCell>
+              {loading
+                ? <p>Cargando...</p>
+                : <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Inversionista</TableHead><TableHead>Capital</TableHead>
+                        <TableHead>% Ganancia</TableHead><TableHead>Ganancia Acumulada</TableHead>
+                        <TableHead>Estado</TableHead><TableHead>Fecha Aporte</TableHead>
+                        <TableHead>Acción</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+                    </TableHeader>
+                    <TableBody>
+                      {aportesConGanancia.map(a => (
+                        <TableRow key={a.id}>
+                          <TableCell>{a.inversionistaNombre}</TableCell><TableCell>${a.monto.toFixed(2)}</TableCell>
+                          <TableCell>{a.porcentajeGanancia}%</TableCell><TableCell>${a.gananciaAcumulada.toFixed(2)}</TableCell>
+                          <TableCell>{a.estado}</TableCell><TableCell>{formatDate(a.fechaAporte ?? a.fecha)}</TableCell>
+                          <TableCell>
+                            <Dialog open={open} onOpenChange={setOpen}>
+                              <DialogTrigger asChild>
+                                <Button onClick={() => abrirModal(a)} disabled={a.estado !== 'activo'}>Devolver</Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Devolución Parcial</DialogTitle>
+                                  <DialogDescription>Ajusta montos y confirma</DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4">
+                                  <div><Label>Capital a devolver</Label>
+                                    <Input type="number" value={capitalDevolver}
+                                      onChange={e => setCapitalDevolver(+e.target.value)}/></div>
+                                  <div><Label>Interés a devolver</Label>
+                                    <Input type="number" value={gananciaDevolver}
+                                      onChange={e => setGananciaDevolver(+e.target.value)}/></div>
+                                </div>
+                                <DialogFooter>
+                                  <Button onClick={confirmarDevolucion}>Confirmar</Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+              }
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Historial de Devoluciones</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Historial de Devoluciones</CardTitle></CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Inversionista</TableHead>
-                    <TableHead>Capital</TableHead>
-                    <TableHead>Interés</TableHead>
-                    <TableHead>Total</TableHead>
+                    <TableHead>Fecha</TableHead><TableHead>Inversionista</TableHead>
+                    <TableHead>Capital</TableHead><TableHead>Interés</TableHead><TableHead>Total</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {movimientos
-                    .filter(m => m.origen === 'devolucion')
-                    .map(m => (
-                      <TableRow key={m.id}>
-                        <TableCell>{formatDate(m.fecha)}</TableCell>
-                        <TableCell>
-                          {inversionistas.find(i => i.id === m.inversionistaId)
-                            ?.nombre || m.inversionistaId}
-                        </TableCell>
-                        <TableCell>${m.detalle.capital.toFixed(2)}</TableCell>
-                        <TableCell>${m.detalle.ganancia.toFixed(2)}</TableCell>
-                        <TableCell>
-                          ${(m.detalle.capital + m.detalle.ganancia).toFixed(2)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                  {movimientos.filter(m => m.origen === 'devolucion').map(m => (
+                    <TableRow key={m.id}>
+                      <TableCell>{formatDate(m.fecha)}</TableCell>
+                      <TableCell>{inversionistas.find(i => i.id === m.inversionistaId)?.nombre || m.inversionistaId}</TableCell>
+                      <TableCell>${m.detalle.capital.toFixed(2)}</TableCell>
+                      <TableCell>${m.detalle.ganancia.toFixed(2)}</TableCell>
+                      <TableCell>${(m.detalle.capital + m.detalle.ganancia).toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </CardContent>
@@ -440,18 +413,9 @@ export default function DevolucionesPage() {
           {NAV_ITEMS.map(it => {
             const active = path === it.href;
             return (
-              <Link
-                key={it.href}
-                href={it.href}
-                className="flex flex-col items-center justify-center"
-              >
-                <it.icon
-                  size={20}
-                  className={active ? 'text-blue-500' : 'text-gray-400'}
-                />
-                <span className={`text-xs ${active ? 'text-blue-500' : 'text-gray-400'}`}>
-                  {it.label}
-                </span>
+              <Link key={it.href} href={it.href} className="flex flex-col items-center justify-center">
+                <it.icon size={20} className={active ? 'text-blue-500' : 'text-gray-400'}/>
+                <span className={`text-xs ${active ? 'text-blue-500' : 'text-gray-400'}`}>{it.label}</span>
               </Link>
             );
           })}
