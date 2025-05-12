@@ -139,13 +139,17 @@ export default function PagosPage() {
 
   // Filtrar préstamos al cambiar cliente
   useEffect(() => {
-    setPrestamosFiltrados(
-      clienteSeleccionado
-        ? prestamos.filter(p=>p.clienteId===clienteSeleccionado)
-        : []
+    const filtered = clienteSeleccionado
+      ? prestamos.filter(p => p.clienteId === clienteSeleccionado)
+      : [];
+  
+    // Orden descendente por fechaInicio (más reciente primero)
+    filtered.sort((a, b) =>
+      parseDate(b.fechaInicio).getTime() - parseDate(a.fechaInicio).getTime()
     );
+  
+    setPrestamosFiltrados(filtered);
   }, [clienteSeleccionado, prestamos]);
-
   // Cargar pagos para el modal
   useEffect(() => {
     if (!prestamoSeleccionado) {

@@ -32,7 +32,7 @@ type Props = {
   children: React.ReactNode;
 };
 
-export default function DashboardLayout({ title = 'Dashboard', children }: Props) {
+export default function DashboardLayout({ title = 'Préstamos App', children }: Props) {
   const [mobileMenu, setMobileMenu] = useState(false);
   const path = usePathname();
 

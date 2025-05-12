@@ -3,21 +3,46 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Menu as MenuIcon, X, Home, Users, DollarSign, BarChart2, Settings } from 'lucide-react';
+import {
+  Menu as MenuIcon,
+  X,
+  Home,
+  Users,
+  DollarSign,
+  BarChart2,
+  Settings
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent
+} from '@/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell
+} from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { toast } from 'react-hot-toast';
 import { db } from '@/lib/firebaseConfig';
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  orderBy
+} from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebaseConfig';
 import { obtenerRolDeUsuario } from '@/lib/auth';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
 
 // ---- NAV ITEMS ----
 const NAV_ITEMS = [
@@ -52,7 +77,7 @@ const countQuincenasDesde = (start: Date, end: Date) => {
   let c = 0, d = new Date(start);
   d.setDate(d.getDate()+1);
   while(d<=end){
-    const day=d.getDate(),m=d.getMonth(),y=d.getFullYear(),
+    const day=d.getDate(), m=d.getMonth(), y=d.getFullYear(),
           ld=new Date(y,m+1,0).getDate();
     if(day===15 || day===(m===1?ld:30)) c++;
     d.setDate(d.getDate()+1);
@@ -62,7 +87,7 @@ const countQuincenasDesde = (start: Date, end: Date) => {
 const formatDateDisplay = (s: string) => {
   const dt = parseDate(s);
   return new Intl.DateTimeFormat('es-PA',{
-    day:'numeric',month:'long',year:'numeric'
+    day:'numeric', month:'long', year:'numeric'
   }).format(dt);
 };
 
@@ -79,8 +104,9 @@ const calcularValoresPrestamo = async (p: Prestamo): Promise<Prestamo> => {
   pagosSnap.docs.forEach(d=>{
     const pd = d.data() as any;
     totalCap += pd.montoCapital||0;
-    if(pd.montoInteres>0 && parseDate(pd.fechaPago)>lastDate)
+    if(pd.montoInteres>0 && parseDate(pd.fechaPago)>lastDate) {
       lastDate = parseDate(pd.fechaPago);
+    }
   });
   const saldo = p.monto - totalCap;
   const quincenas = countQuincenasDesde(lastDate, new Date());
@@ -103,33 +129,53 @@ const obtenerPagosAgrupados = async (): Promise<PagoResumen> => {
   return res;
 };
 
-
 // ---- COMPONENT ----
 export default function ReportesPage(){
   const router = useRouter();
   const path   = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [prestamos, setPrestamos] = useState<Prestamo[]>([]);
-  const [resumenPagos, setResumenPagos] = useState<PagoResumen>({});
+  const [clientes, setClientes]           = useState<Cliente[]>([]);
+  const [prestamos, setPrestamos]         = useState<Prestamo[]>([]);
+  const [resumenPagos, setResumenPagos]   = useState<PagoResumen>({});
   const [busquedaCliente, setBusquedaCliente] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [rol, setRol] = useState<string|null>(null);
+  const [loading, setLoading]             = useState(true);
+  const [authChecked, setAuthChecked]     = useState(false);
+  const [rol, setRol]                     = useState<string|null>(null);
 
   // pagination
   const [pagina, setPagina] = useState(1);
   const porPagina = 10;
-  const prestamosFiltrados = prestamos.filter(p=>{
-    const cli = clientes.find(c=>c.id===p.clienteId);
-    return cli?.nombre.toLowerCase().includes(busquedaCliente.toLowerCase());
-  });
+
+  // ACTIVOS: saldo > 0
+  const prestamosFiltrados = prestamos
+    .filter(p=>{
+      const cli = clientes.find(c=>c.id===p.clienteId);
+      return (p.saldoCapital ?? 0) > 0
+          && cli?.nombre.toLowerCase().includes(busquedaCliente.toLowerCase());
+    })
+    .sort((a,b)=>
+      parseDate(b.fechaInicio).getTime()
+      - parseDate(a.fechaInicio).getTime()
+    );
+
+  // FINALIZADOS: saldo = 0
+  const prestamosFinalizados = prestamos
+    .filter(p=>{
+      const cli = clientes.find(c=>c.id===p.clienteId);
+      return (p.saldoCapital ?? 0) === 0
+          && cli?.nombre.toLowerCase().includes(busquedaCliente.toLowerCase());
+    })
+    .sort((a,b)=>
+      parseDate(b.fechaInicio).getTime()
+      - parseDate(a.fechaInicio).getTime()
+    );
+
   const totalPaginas = Math.ceil(prestamosFiltrados.length/porPagina);
   const pagPrev = ()=> pagina>1 && setPagina(pagina-1);
   const pagNext = ()=> pagina<totalPaginas && setPagina(pagina+1);
 
-  // auth + load
+  // AUTH + DATA LOAD
   useEffect(()=>{
     const unsub = onAuthStateChanged(auth, async user=>{
       if(!user) return router.replace('/login');
@@ -163,13 +209,13 @@ export default function ReportesPage(){
     }
   },[]);
 
+  // EXPORT
   const exportarExcel = ()=>{
-    const ws = XLSX.utils.json_to_sheet(prestamos);
+    const ws = XLSX.utils.json_to_sheet(prestamosFiltrados);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Reportes');
     XLSX.writeFile(wb,'reportes_prestamos.xlsx');
   };
-
   const exportarPDF = ()=>{
     const doc = new jsPDF();
     doc.text('Reporte de Préstamos',20,10);
@@ -201,7 +247,9 @@ export default function ReportesPage(){
             </Link>
           ))}
           <div className="mt-6 border-t pt-4 border-gray-200">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">Administración</h3>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+              Administración
+            </h3>
             {ADMIN_ITEMS.map(it=>(
               <Link
                 key={it.href}
@@ -244,20 +292,22 @@ export default function ReportesPage(){
                     key={it.href}
                     href={it.href}
                     onClick={()=>setMenuOpen(false)}
-                    className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
+                    className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100 transition"
                   >
                     <it.icon className="w-5 h-5"/>
                     <span>{it.label}</span>
                   </Link>
                 ))}
                 <div className="mt-6 border-t pt-4 border-gray-200">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">Administración</h3>
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                    Administración
+                  </h3>
                   {ADMIN_ITEMS.map(it=>(
                     <Link
                       key={it.href}
                       href={it.href}
                       onClick={()=>setMenuOpen(false)}
-                      className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100"
+                      className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100 transition"
                     >
                       <it.icon className="w-5 h-5"/>
                       <span>{it.label}</span>
@@ -271,38 +321,48 @@ export default function ReportesPage(){
 
         {/* MAIN */}
         <main className="flex-1 p-4 md:p-6 space-y-6">
-          {/* Resumen cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-green-100 text-center">
-              <CardContent>
-                <h3 className="text-2xl font-bold">{prestamosFiltrados.length}</h3>
-                <p>Préstamos Activos</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-blue-100 text-center">
-              <CardContent>
-                <h3 className="text-2xl font-bold">
-                  $
-                  {prestamosFiltrados
-                    .reduce((acc,p)=>acc+(p.saldoCapital||0),0)
-                    .toFixed(2)}
-                </h3>
-                <p>Total Saldo Capital</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-yellow-100 text-center">
-              <CardContent>
-                <h3 className="text-2xl font-bold">
-                  $
-                  {prestamosFiltrados
-                    .reduce((acc,p)=>acc+(p.interesesAcumulados||0),0)
-                    .toFixed(2)}
-                </h3>
-                <p>Total Intereses</p>
-              </CardContent>
-            </Card>
-          </div>
-
+  {/* Resumen cards: ahora 4 columnas en md+ */}
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <Card className="bg-green-100 text-center">
+      <CardContent>
+        <h3 className="text-2xl font-bold">
+          {prestamosFiltrados.length}
+        </h3>
+        <p>Préstamos Activos</p>
+      </CardContent>
+    </Card>
+    <Card className="bg-blue-100 text-center">
+      <CardContent>
+        <h3 className="text-2xl font-bold">
+          ${prestamosFiltrados
+            .reduce((acc, p) => acc + (p.saldoCapital || 0), 0)
+            .toFixed(2)}
+        </h3>
+        <p>Total Saldo Capital</p>
+      </CardContent>
+    </Card>
+    <Card className="bg-yellow-100 text-center">
+      <CardContent>
+        <h3 className="text-2xl font-bold">
+          ${prestamosFiltrados
+            .reduce((acc, p) => acc + (p.interesesAcumulados || 0), 0)
+            .toFixed(2)}
+        </h3>
+        <p>Total Intereses Acumulados</p>
+      </CardContent>
+    </Card>
+    {/* Nueva tarjeta: suma de todos los intereses efectivamente pagados */}
+    <Card className="bg-purple-100 text-center">
+      <CardContent>
+        <h3 className="text-2xl font-bold">
+          ${Object.values(resumenPagos)
+            .reduce((acc, r) => acc + r.interes, 0)
+            .toFixed(2)}
+        </h3>
+        <p>Total Intereses Pagados</p>
+      </CardContent>
+    </Card>
+  </div>
           {/* Filtro + export */}
           <Card>
             <CardContent className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0">
@@ -319,9 +379,11 @@ export default function ReportesPage(){
             </CardContent>
           </Card>
 
-          {/* Tabla de préstamos */}
+          {/* Tabla de préstamos activos */}
           <Card>
-            <CardHeader><CardTitle>Préstamos Activos</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Préstamos Activos</CardTitle>
+            </CardHeader>
             <CardContent>
               {loading ? (
                 <p>Cargando datos…</p>
@@ -363,9 +425,11 @@ export default function ReportesPage(){
             </CardContent>
           </Card>
 
-          {/* Resumen ganancias */}
+          {/* Resumen de ganancias */}
           <Card>
-            <CardHeader><CardTitle>Ganancias por Préstamo</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Ganancias por Préstamo</CardTitle>
+            </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
                 <Table>
@@ -397,6 +461,47 @@ export default function ReportesPage(){
               </div>
             </CardContent>
           </Card>
+
+          {/* Tabla de préstamos finalizados */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Préstamos Finalizados</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {prestamosFinalizados.length === 0 ? (
+                <p className="text-center">No hay préstamos finalizados.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Monto</TableHead>
+                        <TableHead>Inicio</TableHead>
+                        <TableHead>Interés Pagado</TableHead>
+                        <TableHead>Total Pagado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {prestamosFinalizados.map(p=>{
+                        const cli = clientes.find(c=>c.id===p.clienteId);
+                        const r = resumenPagos[p.id]||{ capital:0, interes:0 };
+                        return (
+                          <TableRow key={p.id} className="hover:bg-gray-100">
+                            <TableCell>{cli?.nombre||'–'}</TableCell>
+                            <TableCell>${p.monto.toFixed(2)}</TableCell>
+                            <TableCell>{formatDateDisplay(p.fechaInicio)}</TableCell>
+                            <TableCell>${r.interes.toFixed(2)}</TableCell>
+                            <TableCell>${(r.capital+r.interes).toFixed(2)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </main>
 
         {/* bottom nav móvil */}
@@ -404,9 +509,15 @@ export default function ReportesPage(){
           {NAV_ITEMS.map(it=>{
             const active = path===it.href;
             return (
-              <Link key={it.href} href={it.href} className="flex flex-col items-center justify-center">
-                <it.icon size={20} className={active?'text-blue-500':'text-gray-400'}/>
-                <span className={`text-xs ${active?'text-blue-500':'text-gray-400'}`}>{it.label}</span>
+              <Link
+                key={it.href}
+                href={it.href}
+                className="flex flex-col items-center justify-center"
+              >
+                <it.icon size={20} className={active?'text-blue-500':'text-gray-400'} />
+                <span className={`text-xs ${active?'text-blue-500':'text-gray-400'}`}>
+                  {it.label}
+                </span>
               </Link>
             );
           })}
